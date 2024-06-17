@@ -9,13 +9,13 @@ enum ServerDirection {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ServerBuilder {
+struct ServerMeta {
     device_addr: SocketV4IpAddr,
     root_dir: PathBuf,
     server_direction: ServerDirection,
 }
 
-impl ServerBuilder {
+impl ServerMeta {
     fn to_ip(&self) -> &SocketV4IpAddr {
         match self.server_direction {
             ServerDirection::In => {
@@ -37,13 +37,13 @@ impl ServerBuilder {
     }
 }
 
-fn get_meta() -> ServerBuilder {
+fn get_meta() -> ServerMeta {
     let meta_file = std::fs::read_file("resources/server/server_meta.json").unwrap();
 
     serde_json::from_str(meta_file).unwrap()
 }
 
-fn stream_args<'a>(args: &mut std::env::Args, builder: &mut ServerBuilder) {
+fn stream_args<'a>(args: &mut std::env::Args, builder: &mut ServerMeta) {
     if let Some(arg) = args.next() {
         if arg[..2] == "--" {
             if let Some(val) = args.next() {
@@ -55,7 +55,7 @@ fn stream_args<'a>(args: &mut std::env::Args, builder: &mut ServerBuilder) {
     }
 }
 
-fn mutate_builder<'a>(builder: &mut ServerBuilder, flag: String, arg: Option<String>) {
+fn mutate_builder<'a>(builder: &mut ServerMeta, flag: String, arg: Option<String>) {
     // there is no flag that takes no arg yet
     if arg.is_none() {
         return;
@@ -112,82 +112,11 @@ fn mutate_builder<'a>(builder: &mut ServerBuilder, flag: String, arg: Option<Str
     }
 }
 
-pub(crate) fn build(server_builder: ServerBuilder) -> HashMap<String, String> {
+pub(crate) fn build(server_meta: ServerMeta) {
     let mut args = std::env::args();
     args.next();
 
     while !args.is_empty() {
         stream_args(&mut args, builder);
-    }
-}
-
-fn server_loop(listener: TcpListener) {
-    for mut stream in listener.incoming().flatten() {
-        let mut reader = std::io::BufReader::new(&mut stream);
-        eprintln!("{:?}", reader);
-        // get resource
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        match line.trim().split(" ").collect::<Vec<&str>>().as_slice() {
-            // TODO: security for received resource var
-            // make sure received resource is not malicious string
-            ["GET", resource, "HTTP/1.1"] => {
-                loop {
-                    let mut line = String::new();
-                    reader.read_line(&mut line).unwrap();
-                    if line.trim().is_empty() {
-                        break;
-                    }
-                    print!("{}", &line[..]);
-                }
-                println!("\r\n\r\n\r\n");
-                let mut path = std::path::PathBuf::new();
-                path.push(&local_path[..]);
-                path.push(resource.trim_start_matches("/"));
-                if resource.ends_with('/') {
-                    path.push("index.html");
-                }
-                // TODO: js not working
-                // TODO: if asked for file is outside of src abort all
-                // make sure there is no (../), (/some_path) and the likes involved
-                eprintln!(
-                    "the path to the html is: {:?}\n{:?}",
-                    &path,
-                    &path.extension()
-                );
-
-                let res_header = match path.extension().unwrap().to_str() {
-                    Some("js") => RES_JS,
-                    Some("css") => RES_CSS,
-                    Some("html") => RES_HTML,
-                    _ => RES_GENERAL,
-                };
-                println!("headers::: {}", res_header);
-                stream.write_all(res_header.as_bytes()).unwrap();
-                let res = std::fs::read(path);
-                match res {
-                    Ok(_) => stream.write_all(&res.unwrap()).unwrap(),
-                    Err(err) => match err.kind() {
-                        ErrorKind::NotFound => {
-                            eprintln!("bypassing response error, probably false positive of favicon.ico not found");
-                        }
-                        _ => {
-                            Error::other(err);
-                        }
-                    },
-                }
-            }
-            _ => {}
-        }
-        // using loop
-
-        //  using while
-        // let mut line = String::new();
-        // reader.read_line(&mut line).unwrap();
-        // while !line.trim().is_empty() {
-        //     print!("{}", &line[..]);
-        //     line = String::new();
-        //     reader.read_line(&mut line).unwrap();
-        // }
     }
 }

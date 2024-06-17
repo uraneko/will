@@ -13,9 +13,9 @@ export class NavMenu {
 
 	static SVG = async function() {
 		return {
-			home: await this.fetch_svg(BaseURI + "/icons/", "home", "text/xml+svg"),
-			upload: await this.fetch_svg(BaseURI + "/icons/", "upload", "text/xml+svg"),
-			themes: await this.fetch_svg(BaseURI + "/icons/", "themes", "text/xml+svg"),
+			home: await this.fetch_svg(BaseURI + "/i/", "home", "text/xml+svg"),
+			upload: await this.fetch_svg(BaseURI + "/i/", "upload", "text/xml+svg"),
+			themes: await this.fetch_svg(BaseURI + "/i/", "themes", "text/xml+svg"),
 		}
 	}
 
@@ -44,7 +44,7 @@ export class NavMenu {
 	}
 
 	async fetch_svg(path: string, leaf: string, contentType: string): Promise<HTMLDivElement> {
-		const fullPath = path + leaf + ".svg";
+		const fullPath = path + leaf;
 		const res = await fetch(fullPath, {
 			method: "GET",
 			headers: {
@@ -77,7 +77,7 @@ export class FileManager {
 
 	// fetches the default dir items
 	async default() {
-		const res = await fetch(BaseURI + "dir/default", {
+		const res = await fetch(BaseURI + "/d/default", {
 			"method": "GET",
 			"headers": {
 				"Content-Type": "text/html"
@@ -101,7 +101,7 @@ export class FileManager {
 
 	// cds from dir to another
 	async cd(newDir: string) {
-		const res = await fetch(BaseURI + "/dir/" + newDir, {
+		const res = await fetch(BaseURI + "/d/" + newDir, {
 			"method": "GET",
 			"headers": {
 				"Content-Type": "text/html",
