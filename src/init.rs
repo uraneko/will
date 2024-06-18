@@ -1,51 +1,60 @@
-use std::net::SocketV4IpAddr;
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
+use std::str::FromStr;
 
-#[derive(Serialize, Deserialize)]
-enum ServerDirection {
+use serde::{Deserialize, Serialize};
+
+use derive_str_enumify::TryFromStr;
+
+#[derive(Serialize, Deserialize, TryFromStr)]
+pub(crate) enum ServerDirection {
     In,
     Out,
     All,
 }
 
 #[derive(Serialize, Deserialize)]
-struct ServerMeta {
-    device_addr: SocketV4IpAddr,
+pub(crate) struct ServerMeta {
+    device_addr: SocketAddrV4,
     root_dir: PathBuf,
     server_direction: ServerDirection,
 }
 
 impl ServerMeta {
-    fn to_ip(&self) -> &SocketV4IpAddr {
+    pub(crate) fn ip_addr(&self) -> SocketAddrV4 {
         match self.server_direction {
             ServerDirection::In => {
-                SocketV4IpAddr::new(Ipv4Addr::new(127, 0, 0, 1), self.device_addr.port())
+                SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), self.device_addr.port())
             }
             ServerDirection::Out => self.device_addr,
             ServerDirection::All => {
-                SocketV4IpAddr::new(Ipv4Addr::new(0, 0, 0, 0), self.device_addr.port())
+                SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), self.device_addr.port())
             }
         }
     }
 
-    pub(crate) fn base_uri<'a>(&self) -> &'a str {
-        self.to_ip().ip().to_string().as_str()
+    pub(crate) fn base_uri(&self) -> String {
+        self.ip_addr().ip().to_string()
     }
 
-    pub(crate) fn listener_addr<'a>(&self) -> &'a str {
-        self.to_ip().to_string().as_str()
+    pub(crate) fn listener_addr(&self) -> String {
+        self.ip_addr().to_string()
+    }
+
+    pub(crate) fn dir<'a>(&'a self) -> &'a str {
+        &self.root_dir.to_str().unwrap()
     }
 }
 
-fn get_meta() -> ServerMeta {
-    let meta_file = std::fs::read_file("resources/server/server_meta.json").unwrap();
+pub(crate) fn get_meta() -> ServerMeta {
+    let meta_file = std::fs::read_to_string("resources/server/server_meta.json").unwrap();
 
-    serde_json::from_str(meta_file).unwrap()
+    serde_json::from_str(&meta_file).unwrap()
 }
 
 fn stream_args<'a>(args: &mut std::env::Args, builder: &mut ServerMeta) {
     if let Some(arg) = args.next() {
-        if arg[..2] == "--" {
+        if &arg[..2] == "--" {
             if let Some(val) = args.next() {
                 mutate_builder(builder, arg, Some(val));
             } else {
@@ -62,7 +71,7 @@ fn mutate_builder<'a>(builder: &mut ServerMeta, flag: String, arg: Option<String
     }
     let arg = arg.unwrap();
 
-    match &flag {
+    match &flag[..] {
         "--port" => {
             let port_num = match arg.parse() {
                 Ok(int) => int,
@@ -77,7 +86,7 @@ fn mutate_builder<'a>(builder: &mut ServerMeta, flag: String, arg: Option<String
             builder.device_addr.set_port(port_num);
         }
         "--root-dir" => {
-            let new_dir = match PathBuf::from_str(arg) {
+             match PathBuf::from_str(&arg) {
                 Ok(pb) => match pb.is_dir() {
                     true => builder.root_dir = pb,
                     false => {
@@ -97,7 +106,7 @@ fn mutate_builder<'a>(builder: &mut ServerMeta, flag: String, arg: Option<String
             };
         }
         "--server-direction" => {
-            let new_direction = ServerDirection::str_enumify(arg).unwrap();
+            let new_direction = ServerDirection::try_from(&arg[..]);
             match new_direction {
                 // TODO: change str_enumify to return a result of the enum variant
                 // rather than panic
@@ -112,11 +121,11 @@ fn mutate_builder<'a>(builder: &mut ServerMeta, flag: String, arg: Option<String
     }
 }
 
-pub(crate) fn build(server_meta: ServerMeta) {
+pub(crate) fn build(server_meta: &mut ServerMeta) {
     let mut args = std::env::args();
     args.next();
 
     while !args.is_empty() {
-        stream_args(&mut args, builder);
+        stream_args(&mut args, server_meta);
     }
 }

@@ -1,29 +1,28 @@
 #![feature(path_file_prefix)]
-use std::collections::HashMap;
+#![feature(exact_size_is_empty)]
 // use std::ffi::OsStr;
-use std::io::{BufRead, Write};
-use std::io::{Error, ErrorKind};
 
 mod api;
-mod file_manager;
+mod endpoints;
 mod init;
 
-use init::build;
-use meta::get_meta;
+use api::server_loop;
+use init::{build, get_meta};
 
 fn main() {
     // this is mut because user can provide their own root dir
     // to server in the program args at startup
     let mut server_meta = get_meta();
-    build(server_meta);
+    build(&mut server_meta);
 
     println!(
-        "serving directory: {} on url:port: {}:{}",
-        local_path, dir, port
+        "serving directory: {} on url:port: {}",
+        server_meta.dir(),
+        server_meta.ip_addr()
     );
 
-    let addr = server_meta.listener_uri();
+    let addr = server_meta.listener_addr();
     let listener = std::net::TcpListener::bind(addr).unwrap();
 
-    server_loop(listener);
+    server_loop(listener, server_meta.dir());
 }

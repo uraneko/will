@@ -1,6 +1,5 @@
 #![feature(addr_parse_ascii)]
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::net::SocketAddrV4;
 use std::path::PathBuf;
 use std::process::Command;
@@ -53,13 +52,15 @@ fn main() {
     let mut device_addr = SocketAddrV4::parse_ascii(&device_addr).unwrap();
     device_addr.set_port(5754);
 
-    let root_dir = PathBuf::from("resources/root");
+    let root_dir = PathBuf::from("resources/root/");
     let meta = ServerMeta {
         device_addr,
         root_dir,
         server_direction: ServerDirection::All,
     };
 
-    let mut file = std::fs::File::create_new("resources/server/server_meta.json").unwrap();
-    _ = file.write_all(&serde_json::to_string(&meta).unwrap().into_bytes());
+    _ = std::fs::write(
+        "resources/server/server_meta.json",
+        &serde_json::to_string(&meta).unwrap().into_bytes(),
+    );
 }
