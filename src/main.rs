@@ -1,4 +1,5 @@
 #![feature(buf_read_has_data_left)]
+#![feature(iter_next_chunk)]
 
 mod server;
 mod setup;
