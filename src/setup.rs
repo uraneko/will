@@ -1,4 +1,4 @@
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 
 fn build() -> String {
     let mut args = std::env::args();
@@ -43,7 +43,7 @@ fn connect(url: &str) -> TcpListener {
     }
 }
 
-pub fn init() -> TcpListener {
+pub(super) fn init() -> TcpListener {
     let url = build();
 
     connect(&url)

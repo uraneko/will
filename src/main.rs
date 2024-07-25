@@ -1,14 +1,17 @@
+#![feature(buf_read_has_data_left)]
+
+mod server;
 mod setup;
 
+use server::server;
 use setup::init;
 
 fn main() {
     // start the server
-    // let conn = init();
+    let conn = init();
 
-    // eprintln!("{:?}", conn);
+    eprintln!("{:?}", conn);
 
-    // for stream in conn.incoming() {
-    //     eprintln!("\r\n{:?}", stream);
-    // }
+    // intercept incoming requests
+    server(conn);
 }
