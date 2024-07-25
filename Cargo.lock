@@ -3,19 +3,9 @@
 version = 3
 
 [[package]]
-name = "derive_str_enumify"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "homeward"
 version = "0.1.0"
 dependencies = [
- "derive_str_enumify",
  "serde",
  "serde_json",
 ]
