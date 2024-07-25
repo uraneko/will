@@ -105,7 +105,7 @@ fn content_type<'a>(path: &PathBuf) -> String {
 
     match ty {
         "html" => "text/html",
-        "css" => ".text/css",
+        "css" => "text/css",
         "js" => "text/javascript",
         "json" => "application/json",
         "jpg" | ".jpeg" => "image/jpeg",
@@ -118,5 +118,5 @@ fn content_type<'a>(path: &PathBuf) -> String {
         _ => "",
     }
     .to_string()
-        + "; charset=utf-8"
+    // + "; charset=utf-8"
 }
