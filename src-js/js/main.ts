@@ -1,9 +1,6 @@
-import { NavMenu, FileManager, } from "./root.ts";
+import { init } from "./root.js";
 
-const navMenu = new NavMenu();
-await navMenu.init();
-navMenu.start();
+const app = await init();
 
-const fileManager = new FileManager();
-await fileManager.default();
-fileManager.start();
+
+document.body.appendChild(app);

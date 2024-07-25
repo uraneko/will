@@ -32,6 +32,13 @@ pub(super) fn server(conn: TcpListener) {
             continue;
         }
 
+        // TODO: add paths by extension
+        // ie.a request for abc.js resolves to the path {ROOT_DIR}/src/abc.js
+        let uri = match uri == "/" {
+            true => "/src/index.html",
+            false => uri,
+        };
+
         let resource_path = ROOT_DIR.to_string() + uri;
 
         let response_body = fetch_resource(&resource_path);
@@ -118,5 +125,5 @@ fn content_type<'a>(path: &PathBuf) -> String {
         _ => "",
     }
     .to_string()
-    // + "; charset=utf-8"
+        + "; charset=utf-8"
 }
