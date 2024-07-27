@@ -4,12 +4,12 @@
 
 export async function init() {
 	const app = document.createElement("div");
-	app.className = "appRoot mainApp";
+	app.className = "app-root mainApp";
 
-	const nm = await genNavMenu(["home", "upload", "themes"]);
+	const nm = await genNavMenu(["home", "upload", "themes", "help"]);
 	const fs = await genFS();
 
-	app.appendChild(nm);
+	app.append(nm, fs);
 
 	return app;
 
@@ -25,7 +25,7 @@ async function genNavMenu(icons: Array<string>) {
 }
 
 async function fetchSVG(icon: string) {
-	const res = await fetch(`http://localhost:8765/images/icons/${icon}.svg`, {
+	const res = await fetch(`http://localhost:8765/images/${icon}.svg`, {
 		method: "GET",
 		headers: {
 			"Content-Type": "text/xml+svg",
@@ -50,6 +50,22 @@ async function genFS() {
 	container.className = "component fileSystem";
 	// TODO: get premade html filled with the requested data from the server
 
+	const res = await fetch("http://localhost:8765/fs?path=/dir/", {
+		method: "GET",
+		headers: {
+			"Content-Type": "text/html",
+		}
+	});
+
+	const text = await res.text();
+
+	const elems = new DOMParser().parseFromString(text, "text/html").querySelectorAll("div.fsEntry");
+	if (elems[0] === undefined) { throw new Error("failed to fetch fs dir"); }
+
+	// @ts-ignore
+	container.append(...elems);
+
+	return container;
 
 }
 
