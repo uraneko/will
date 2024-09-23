@@ -1,1 +1,1 @@
-pub(crate) mod tree;
+pub mod tree;

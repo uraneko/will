@@ -9,32 +9,33 @@ use std::path::{Path, PathBuf};
 
 const TREE_ROOT: &str = "explorer/";
 
-pub(crate) fn tree() -> Node {
+pub fn tree() -> Node {
     Node::scan_root()
 }
 
-// #[derive(PartialEq, Eq, Hash)]
-pub(crate) enum Node {
+#[derive(Debug, Clone)]
+pub enum Node<'a> {
     File {
-        next: Option<Box<Node>>,
-        prev: Option<Box<Node>>,
+        next: Option<&'a Node<'a>>,
+        prev: Option<&'a Node<'a>>,
         value: PathBuf,
     },
 
     Dir {
         value: PathBuf,
-        children: Vec<Box<Node>>,
-        next: Option<Box<Node>>,
-        prev: Option<Box<Node>>,
+        children: Vec<Box<Node<'a>>>,
+        next: Option<&'a Node<'a>>,
+        prev: Option<&'a Node<'a>>,
     },
 
     Root {
-        children: Vec<Box<Node>>,
+        children: Vec<Box<Node<'a>>>,
     },
 }
 
-impl Node {
+impl<'a> Node<'a> {
     fn scan_root() -> Self {
+        _ = fs::create_dir(PathBuf::from(TREE_ROOT));
         Node::Root {
             children: scan_dir(PathBuf::from(TREE_ROOT)),
         }
@@ -57,7 +58,10 @@ impl Node {
         }
     }
 
-    fn next(&self) -> &Option<Box<Node>> {
+    fn next<'b>(&'a self) -> &'b Option<Box<Node<'a>>>
+    where
+        'a: 'b,
+    {
         match self {
             Self::File { next, .. } => next,
             Self::Dir { next, .. } => next,
@@ -65,15 +69,10 @@ impl Node {
         }
     }
 
-    fn prev(&self) -> &Option<Box<Node>> {
-        match self {
-            Self::File { prev, .. } => prev,
-            Self::Dir { prev, .. } => prev,
-            _ => return &None,
-        }
-    }
-
-    pub fn next_ref(&self) -> Result<&Node, Error> {
+    pub(crate) fn next_ref<'b>(&'a self) -> Result<&'b Node<'a>, Error>
+    where
+        'a: 'b,
+    {
         let next = match self {
             Self::File { next, .. } => next,
             Self::Dir { next, .. } => next,
@@ -87,7 +86,10 @@ impl Node {
         }
     }
 
-    pub fn next_mut(&mut self) -> Result<&mut Node, Error> {
+    pub(crate) fn next_mut<'b>(&'a mut self) -> Result<&'b mut Node<'a>, Error>
+    where
+        'a: 'b,
+    {
         let next = match self {
             Self::File { next, .. } => next,
             Self::Dir { next, .. } => next,
@@ -100,10 +102,53 @@ impl Node {
             Err(Error::other("next node doesn't exist"))
         }
     }
+
+    fn prev<'b>(&'a self) -> &'b Option<Box<Node<'a>>>
+    where
+        'a: 'b,
+    {
+        match self {
+            Self::File { prev, .. } => prev,
+            Self::Dir { prev, .. } => prev,
+            _ => return &None,
+        }
+    }
+
+    pub(crate) fn prev_ref(&self) -> Result<&Node, Error> {
+        let prev = match self {
+            Self::File { prev, .. } => prev,
+            Self::Dir { prev, .. } => prev,
+            _ => return Err(Error::other("root has no siblings")),
+        };
+
+        if let Some(node) = prev {
+            Ok(node)
+        } else {
+            Err(Error::other("prev node doesn't exist"))
+        }
+    }
+
+    pub(crate) fn prev_mut(&mut self) -> Result<&mut Node, Error> {
+        let prev = match self {
+            Self::File { prev, .. } => prev,
+            Self::Dir { prev, .. } => prev,
+            _ => return Err(Error::other("root has no siblings")),
+        };
+
+        if let Some(ref mut node) = prev {
+            Ok(node)
+        } else {
+            Err(Error::other("prev node doesn't exist"))
+        }
+    }
 }
 
+// TODO: forgot to implement next and prev
+// prev and next are actually not needed
+// because siblings are in a vector already
 // recursive
 fn scan_dir(p: PathBuf) -> Vec<Box<Node>> {
+    let mut idx = 0;
     fs::read_dir(p)
         .unwrap()
         .filter(|ore| if let Ok(_) = ore { true } else { false })
@@ -111,8 +156,10 @@ fn scan_dir(p: PathBuf) -> Vec<Box<Node>> {
         .map(|e| e.path())
         .map(|p| {
             if p.is_file() {
+                idx += 1;
                 Node::file_from_path(p)
             } else if p.is_dir() {
+                idx += 1;
                 Node::dir_from_path(p)
             } else {
                 panic!("dir entry '{:?}' was neither dir nor file", p)
@@ -131,4 +178,38 @@ fn scan_dir(p: PathBuf) -> Vec<Box<Node>> {
         })
         .map(|node| Box::new(node))
         .collect::<Vec<Box<Node>>>()
+}
+
+// broken
+fn link_dir(dir: &mut Vec<Box<Node>>) {
+    match *dir[0] {
+        Node::Dir { ref mut next, .. } | Node::File { ref mut next, .. } => *next = Some(&*dir[1]),
+        _ => unreachable!("dont touch root"),
+    }
+
+    for idx in 1..dir.len() - 1 {
+        match *dir[idx] {
+            Node::Dir {
+                ref mut next,
+                ref mut prev,
+                ..
+            }
+            | Node::File {
+                ref mut next,
+                ref mut prev,
+                ..
+            } => {
+                *prev = Some(&*dir[idx - 1]);
+                *next = Some(&*dir[idx + 1]);
+            }
+            _ => unreachable!("dont touch root"),
+        }
+    }
+
+    match *dir[dir.len() - 1] {
+        Node::Dir { ref mut prev, .. } | Node::File { ref mut prev, .. } => {
+            *prev = Some(&*dir[dir.len() - 2])
+        }
+        _ => unreachable!("dont touch root"),
+    }
 }
