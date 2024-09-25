@@ -6,10 +6,10 @@ export async function init() {
 	const app = document.createElement("div");
 	app.className = "app-root mainApp";
 
-	const nm = await genNavMenu(["home", "upload", "themes", "help"]);
-	const fs = await genFS();
+	const nm = await genNavMenu(["home", "upload", "themes", "help", "lang", "configs2", "bonfire"]);
+	const fe = await genFE();
 
-	app.append(nm, fs);
+	app.append(nm, fe);
 
 	return app;
 
@@ -45,12 +45,18 @@ async function fetchSVG(icon: string) {
 	return container;
 }
 
-async function genFS() {
+async function genFE() {
 	const container = document.createElement("div");
-	container.className = "component fileSystem";
-	// TODO: get premade html filled with the requested data from the server
+	container.className = "component fileExplorer";
 
-	const res = await fetch("http://localhost:8765/fs?path=/dir/", {
+	const path = document.createElement("input");
+	path.type = "text";
+	path.className = "FEpath";
+	path.value = "/dir/";
+
+	container.appendChild(path);
+
+	const res = await fetch("http://localhost:8765/fe?path=/dir/", {
 		method: "GET",
 		headers: {
 			"Content-Type": "text/html",
@@ -59,8 +65,8 @@ async function genFS() {
 
 	const text = await res.text();
 
-	const elems = new DOMParser().parseFromString(text, "text/html").querySelectorAll("div.fsEntry");
-	if (elems[0] === undefined) { throw new Error("failed to fetch fs dir"); }
+	const elems = new DOMParser().parseFromString(text, "text/html").querySelectorAll("div.feEntry");
+	if (elems[0] === undefined) { throw new Error("failed to fetch fe dir"); }
 
 	// @ts-ignore
 	container.append(...elems);
@@ -69,3 +75,27 @@ async function genFS() {
 
 }
 
+async function dir(uri: string) {
+	const res = await fetch(uri, {
+		method: "GET",
+		headers: {
+			"Content-Type": "text/html",
+		}
+	});
+
+	const text = await res.text();
+
+	const elems = new DOMParser().parseFromString(text, "text/html").querySelectorAll("div.feEntry");
+	if (elems[0] === undefined) { throw new Error("failed to fetch fe dir"); }
+
+	return elems;
+}
+
+function homeClick(e: Event) {
+	// TODO: send request to get "/dir"; the landing page default fe path
+	// change contents of fileExplorer component
+}
+
+function home(home: HTMLDivElement, fn: Function) {
+	home.addEventListener("click", homeClick)
+}

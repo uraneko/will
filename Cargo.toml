@@ -1,14 +1,14 @@
 [package]
-name = "homeward"
+name = "will_o_wisp"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
-serde = { version = "1.0.203", features = ["derive"] }
-serde_json = "1.0.117"
+[lib]
+path = "src/main.rs"
+name = "will_o_wisp"
 
-[build-dependencies]
-serde = { version = "1.0.203", features = ["derive"] }
-serde_json = "1.0.117"
+[[example]]
+name = "tree"
+path = "examples/tree.rs"
