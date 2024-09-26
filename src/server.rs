@@ -5,6 +5,7 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::path::PathBuf;
 
+mod https;
 mod request;
 mod response;
 
@@ -15,7 +16,11 @@ enum ServerErr {
     InsufficientHeaders,
 }
 
+use request::parse_body;
+
 pub(super) fn garcon(conn: TcpListener) {
+    let mut data = String::new();
+    let mut buf = vec![];
     while let Some(Ok(mut stream)) = conn.incoming().next() {
         let mut reader = std::io::BufReader::new(&mut stream);
 
@@ -23,7 +28,7 @@ pub(super) fn garcon(conn: TcpListener) {
         loop {
             _ = reader.read_line(&mut request);
 
-            if request.len() > 4 && request.ends_with("\r\n\r\n") {
+            if request.len() > "GET / HTTP/1.1".len() && request.ends_with("\r\n\r\n") {
                 break;
             }
         }
@@ -31,8 +36,6 @@ pub(super) fn garcon(conn: TcpListener) {
         eprintln!("\r\n----------------------\r\n{:?}", request);
 
         let request = parse_request(&request);
-
-        let mut writer = std::io::BufWriter::new(&mut stream);
 
         if let Err(RequestErr::BadRequestLine {
             method,
@@ -44,7 +47,7 @@ pub(super) fn garcon(conn: TcpListener) {
                 "bad {} request at url {} with http version {}, aborting...",
                 method, url, version
             );
-            _ = writer.write(format!("{} 400 Bad Request", version).as_bytes());
+
             continue;
         } else if let Err(e) = request {
             eprintln!("server aborting request due to error: {:?}", e);
@@ -52,6 +55,13 @@ pub(super) fn garcon(conn: TcpListener) {
         }
 
         let request = request.unwrap();
+
+        // NOTE: im not sure whether to have
+        // request.body take a mut ref and modify in place
+        // or take self ans return self
+        let request = parse_body(request, &mut data, &mut buf, &mut reader);
+
+        let mut writer = std::io::BufWriter::new(&mut stream);
 
         println!("=========\r\n{:?}\r\n=========", request);
 

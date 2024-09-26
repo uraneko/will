@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 
 const MIME_TYPES: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8";
 
@@ -194,12 +195,54 @@ fn parse_header(line: &str) -> Result<(&str, &str), RequestErr> {
     ))
 }
 
-fn parse_body(lines: Vec<&str>) -> HashMap<&str, &str> {
-    lines.into_iter().map(|l| parse_field(l)).collect()
+fn parse_fields<'a>(lines: Vec<&'a str>) -> HashMap<&'a str, &'a str> {
+    lines
+        .into_iter()
+        .filter(|l| !["{", "[", "}", "]"].contains(&l.trim()))
+        .map(|l| parse_field(l))
+        // .inspect(|r| println!("parsed request body field: {:?}", r))
+        .filter(|f| f.is_ok())
+        .map(|f| f.unwrap())
+        .collect()
 }
 
-fn parse_field(line: &str) -> (&str, &str) {
-    ("", "")
+fn parse_field(line: &str) -> Result<(&str, &str), RequestErr> {
+    let mut s = line.splitn(2, ": ");
+    // println!("k: {:?}, v: {:?}", s.next(), s.next());
+    Ok((
+        match s.next() {
+            Some(k) => k,
+            None => return Err(RequestErr::HeaderKeyNotFound),
+        },
+        match s.next() {
+            Some(v) => v,
+            None => return Err(RequestErr::HeaderValueNotFound),
+        },
+    ))
+}
+
+pub(crate) fn parse_body<'a>(
+    request: Request<'a>,
+    data: &'a mut String,
+    buf: &'a mut Vec<u8>,
+    reader: &mut std::io::BufReader<&mut std::net::TcpStream>,
+) -> Request<'a> {
+    if !request.has_body() {
+        return request;
+    }
+
+    let len = request.body_len();
+
+    buf.clear();
+    buf.resize(len, 0);
+    _ = reader.read_exact(buf);
+
+    *data = String::from_utf8(buf.to_vec()).unwrap();
+
+    let lines = data.lines().collect::<Vec<&str>>();
+
+    let body = parse_fields(lines);
+    request.body(body)
 }
 
 // enum Request {
@@ -279,8 +322,8 @@ impl<'a> Request<'a> {
         }
     }
 
-    pub(super) fn body(mut self, body: &'a str) -> Self {
-        self.body.insert("data", body);
+    pub(super) fn body(mut self, body: HashMap<&'a str, &'a str>) -> Self {
+        self.body = body;
         self
     }
 
@@ -336,6 +379,21 @@ impl<'a> Request<'a> {
 
     pub(crate) fn is_secure(&self) -> bool {
         false
+    }
+
+    fn has_body(&self) -> bool {
+        self.headers.contains_key("Content-Length")
+    }
+
+    // TODO: match by request url and content length to parse body correctly
+    // FIXME: validate len unwrap and from_utf8 unwrap
+    // if error then return response of 4xx/5xx
+    pub(crate) fn body_len(&self) -> usize {
+        let Some(len) = self.content_length() else {
+            unreachable!("you should first call self.has_body() to check whether the request has a body then call thos method")
+        };
+
+        len.parse().unwrap()
     }
 }
 
