@@ -8,20 +8,21 @@ fn build() -> String {
     let mut port: String = "8975".into();
     while let Some(arg) = args.next() {
         match arg.trim() {
-            "--port" => {
+            "-p" | "--port" => {
                 port = args
                     .next()
                     .expect("expected a port number, found nothing")
                     .trim()
                     .into();
             }
-            "--host" => {
+            "-h" | "--host" => {
                 host = match args
                     .next()
                     .expect("expected host number argument (bidi, in or out), found nothing")
                     .trim()
                 {
                     "in" => host,
+                    // FIXME: get host address
                     "out" => "192.168.1.138".into(),
                     "bidi" => "0.0.0.0".into(),
                     _ => panic!("bad value"),

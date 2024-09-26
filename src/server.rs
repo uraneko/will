@@ -28,7 +28,7 @@ pub(super) fn garcon(conn: TcpListener) {
             }
         }
 
-        eprintln!("\r\n{:?}", request);
+        eprintln!("\r\n----------------------\r\n{:?}", request);
 
         let request = parse_request(&request);
 
@@ -46,20 +46,23 @@ pub(super) fn garcon(conn: TcpListener) {
             );
             _ = writer.write(format!("{} 400 Bad Request", version).as_bytes());
             continue;
+        } else if let Err(e) = request {
+            eprintln!("server aborting request due to error: {:?}", e);
+            continue;
         }
+
         let request = request.unwrap();
+
+        println!("=========\r\n{:?}\r\n=========", request);
 
         if request.is_bad() {
             let Some(bad) = request.how_bad() else {
-                unreachable!("not bad")
+                unreachable!("not bad after all")
             };
-            println!("{}", bad);
+            println!("the request is bad, {}", bad);
             continue;
         }
         // initialize response instance
-
-        // TODO: in rest
-        // cache whole dirs when they get fetched to front end
 
         // write response line, headers and body
     }

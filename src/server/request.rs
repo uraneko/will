@@ -1,48 +1,38 @@
 use std::collections::HashMap;
 
-const MIME_TYPES: &str =
-    "text/html, application/xhtml+xml, application/xml;q=0.9, image/webp, */*;q=0.8";
+const MIME_TYPES: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8";
 
 pub(crate) fn parse_request(request: &str) -> Result<Request, RequestErr> {
-    if is_head_request(request) {
-        parse_head_request(request)
-    } else if is_get_request(request) {
-        parse_get_request(request)
-    } else if is_post_request(request) {
-        parse_post_request(request)
+    let mut lines = request.lines();
+
+    let reqline = lines.next();
+    if reqline.is_none() {
+        return Err(RequestErr::EmptyRequestLine);
+    }
+
+    // parse the entire request line
+    let req_line = parse_request_line(reqline.unwrap());
+
+    let Ok([method, url, version]) = req_line else {
+        return Err(RequestErr::BadRequest);
+    };
+
+    // check req method validity; is GET, POST or some other HTTP request method
+    if !is_http_method(method) || !is_http_version(version) {
+        return Err(RequestErr::BadRequestLine {
+            method,
+            url,
+            version,
+        });
+    }
+
+    // parse the reqline url domain and params
+
+    let (url_path, url_params) = if let Ok((Ok(path), params)) = parse_url(url) {
+        (path, params)
     } else {
-        Err(RequestErr::UnrecognizedMethod)
-    }
-}
-
-fn parse_head_request(request: &str) -> Result<Request, RequestErr> {
-    let mut lines = request.lines();
-
-    let reqline = lines.next();
-    if reqline.is_none() {
-        return Err(RequestErr::EmptyRequestLine);
-    }
-
-    // parse the entire request line
-    let req_line = parse_request_line(reqline.unwrap());
-
-    let Ok([method, url, version]) = req_line else {
         return Err(RequestErr::BadRequest);
     };
-
-    // check req method validity; is GET, POST or some other HTTP request method
-    if !is_http_method(method) || !is_http_version(version) {
-        return Err(RequestErr::BadRequestLine {
-            method,
-            url,
-            version,
-        });
-    }
-
-    // parse the reqline url domain and params
-    let mut params = HashMap::new();
-    let mut domain = [""; 5];
-    parse_url(url, &mut domain, &mut params);
 
     let lines = lines.collect::<Vec<&str>>();
     let headers = parse_headers(lines);
@@ -51,94 +41,23 @@ fn parse_head_request(request: &str) -> Result<Request, RequestErr> {
         method,
         version,
         url,
-        domain,
-        params,
+        url_path,
+        url_params,
         headers,
         HashMap::new(),
     ))
 }
 
-fn parse_get_request(request: &str) -> Result<Request, RequestErr> {
-    let mut lines = request.lines();
-
-    let reqline = lines.next();
-    if reqline.is_none() {
-        return Err(RequestErr::EmptyRequestLine);
+fn is_supported_request(request: &str) -> Option<&str> {
+    if is_head_request(request) {
+        Some("HEAD")
+    } else if is_get_request(request) {
+        Some("GET")
+    } else if is_post_request(request) {
+        Some("POST")
+    } else {
+        None
     }
-
-    // parse the entire request line
-    let req_line = parse_request_line(reqline.unwrap());
-
-    let Ok([method, url, version]) = req_line else {
-        return Err(RequestErr::BadRequest);
-    };
-
-    // check req method validity; is GET, POST or some other HTTP request method
-    if !is_http_method(method) || !is_http_version(version) {
-        return Err(RequestErr::BadRequestLine {
-            method,
-            url,
-            version,
-        });
-    }
-
-    // parse the reqline url domain and params
-    let mut params = HashMap::new();
-    let mut domain = [""; 5];
-    parse_url(url, &mut domain, &mut params);
-
-    let lines = lines.collect::<Vec<&str>>();
-    let headers = parse_headers(lines);
-
-    Ok(Request::new(
-        method,
-        version,
-        url,
-        domain,
-        params,
-        headers,
-        HashMap::new(),
-    ))
-}
-
-fn parse_post_request(request: &str) -> Result<Request, RequestErr> {
-    let mut lines = request.lines();
-
-    let reqline = lines.next();
-    if reqline.is_none() {
-        return Err(RequestErr::EmptyRequestLine);
-    }
-
-    // parse the entire request line
-    let req_line = parse_request_line(reqline.unwrap());
-
-    let Ok([method, url, version]) = req_line else {
-        return Err(RequestErr::BadRequest);
-    };
-
-    // check req method validity; is GET, POST or some other HTTP request method
-    if !is_http_method(method) || !is_http_version(version) {
-        return Err(RequestErr::BadRequestLine {
-            version,
-            method,
-            url,
-        });
-    }
-
-    // parse the reqline url domain and params
-    let mut params = HashMap::new();
-    let mut domain = [""; 5];
-    parse_url(url, &mut domain, &mut params);
-
-    let mut lines = lines.collect::<Vec<&str>>();
-    // TODO: split headers and body
-    let headers = parse_headers(lines.drain(..6).collect());
-
-    let body = parse_body(lines);
-
-    Ok(Request::new(
-        method, version, url, domain, params, headers, body,
-    ))
 }
 
 fn is_get_request(request: &str) -> bool {
@@ -187,31 +106,92 @@ fn parse_request_line(line: &str) -> Result<[&str; 3], RequestErr> {
     Ok([method.unwrap(), url.unwrap(), version.unwrap()])
 }
 
-fn parse_url(url: &str, dbuf: &mut [&str; 5], pbuf: &mut HashMap<&str, &str>) {
-    let [domain, params] = {
-        let mut s = url.splitn(1, "?q");
+const WEB_RESOURCES: &str = "resources/frontend/";
+
+fn parse_url(url: &str) -> Result<(Result<PathBuf, RequestErr>, HashMap<&str, &str>), RequestErr> {
+    let [target, params] = {
+        let mut s = url.splitn(2, "???");
         [s.next(), s.next()]
     };
 
-    if let Some(domain) = domain {
-        parse_url_domain(domain, dbuf);
-    }
+    let target = if let Some(target) = target {
+        parse_url_target(target)
+    } else {
+        return Err(RequestErr::URLTargetNotFound);
+    };
 
-    if let Some(params) = params {
-        parse_url_params(params, pbuf);
+    let params = if let Some(params) = params {
+        parse_url_params(params)
+    } else {
+        HashMap::new()
+    };
+
+    Ok((target, params))
+}
+
+use std::path::PathBuf;
+
+// TODO: when request returns an error we dont just abort
+// instead server should return a suitable 4xx/5xx response
+
+fn parse_url_target(target: &str) -> Result<PathBuf, RequestErr> {
+    let target = WEB_RESOURCES.to_string() + if target == "/" { "/index.html" } else { target };
+    let path = PathBuf::from(&target);
+
+    println!("[[[[[[\n{:?}\n]]]]]]", path);
+    match path.is_file() {
+        true => Ok(path),
+        false => Err(RequestErr::TargetUnparsable),
     }
 }
 
-fn parse_url_domain(domain: &str, buf: &mut [&str; 5]) {}
+fn parse_url_params(params: &str) -> HashMap<&str, &str> {
+    params
+        .split('&')
+        .map(|p| parse_url_param(p))
+        .filter(|res| res.is_ok())
+        .map(|qp| qp.unwrap())
+        .collect()
+}
 
-fn parse_url_params(params: &str, buf: &mut HashMap<&str, &str>) {}
+fn parse_url_param(param: &str) -> Result<(&str, &str), RequestErr> {
+    let mut s = param.splitn(2, "=");
+    // println!("k: {:?}, v: {:?}", s.next(), s.next());
+    Ok((
+        match s.next() {
+            Some(p) => p,
+            None => return Err(RequestErr::ParamNameNotFound),
+        },
+        match s.next() {
+            Some(v) => v,
+            None => return Err(RequestErr::ParamValueNotFound),
+        },
+    ))
+}
 
 fn parse_headers(lines: Vec<&str>) -> HashMap<&str, &str> {
-    lines.into_iter().map(|l| parse_header(l)).collect()
+    lines
+        .into_iter()
+        .map(|l| parse_header(l))
+        // .inspect(|r| println!("parsed header: {:?}", r))
+        .filter(|h| h.is_ok())
+        .map(|h| h.unwrap())
+        .collect()
 }
 
-fn parse_header(line: &str) -> (&str, &str) {
-    ("", "")
+fn parse_header(line: &str) -> Result<(&str, &str), RequestErr> {
+    let mut s = line.splitn(2, ": ");
+    // println!("k: {:?}, v: {:?}", s.next(), s.next());
+    Ok((
+        match s.next() {
+            Some(k) => k,
+            None => return Err(RequestErr::HeaderKeyNotFound),
+        },
+        match s.next() {
+            Some(v) => v,
+            None => return Err(RequestErr::HeaderValueNotFound),
+        },
+    ))
 }
 
 fn parse_body(lines: Vec<&str>) -> HashMap<&str, &str> {
@@ -242,6 +222,10 @@ fn parse_field(line: &str) -> (&str, &str) {
 
 #[derive(Debug)]
 pub(crate) enum RequestErr<'a> {
+    URLTargetNotFound,
+    ParamNameNotFound,
+    ParamValueNotFound,
+    TargetUnparsable,
     BadHeaders,
     BadRequestLine {
         method: &'a str,
@@ -251,20 +235,22 @@ pub(crate) enum RequestErr<'a> {
     BadRequest,
     EmptyRequestLine,
     UnrecognizedMethod,
+    HeaderKeyNotFound,
+    HeaderValueNotFound,
 }
 // requestline - headers - optional body
 
 #[derive(Debug)]
-struct RequestLine<'a> {
+pub(crate) struct RequestLine<'a> {
     version: &'a str,
     method: &'a str,
     url: &'a str,
-    url_domain: [&'a str; 5],
+    url_path: PathBuf,
     url_params: HashMap<&'a str, &'a str>,
 }
 
 #[derive(Debug)]
-struct Request<'a> {
+pub(crate) struct Request<'a> {
     request_line: RequestLine<'a>,
     headers: HashMap<&'a str, &'a str>,
     body: HashMap<&'a str, &'a str>,
@@ -275,7 +261,7 @@ impl<'a> Request<'a> {
         method: &'a str,
         version: &'a str,
         url: &'a str,
-        url_domain: [&'a str; 5],
+        url_path: PathBuf,
         url_params: HashMap<&'a str, &'a str>,
         headers: HashMap<&'a str, &'a str>,
         body: HashMap<&'a str, &'a str>,
@@ -285,7 +271,7 @@ impl<'a> Request<'a> {
                 method,
                 version,
                 url,
-                url_domain,
+                url_path,
                 url_params,
             },
             headers,
@@ -293,44 +279,51 @@ impl<'a> Request<'a> {
         }
     }
 
-    fn method(&self) -> &str {
+    pub(super) fn body(mut self, body: &'a str) -> Self {
+        self.body.insert("data", body);
+        self
+    }
+
+    pub(super) fn method(&self) -> &str {
         self.request_line.method
     }
 
-    fn version(&self) -> &str {
+    pub(super) fn version(&self) -> &str {
         self.request_line.version
     }
 
-    fn url(&self) -> &str {
+    pub(super) fn url(&self) -> &str {
         self.request_line.url
     }
 
-    fn is_http2(&self) -> bool {
+    pub(super) fn is_http2(&self) -> bool {
         self.request_line.version == "HTTP/2"
     }
 
-    fn is_http1_1(&self) -> bool {
+    pub(super) fn is_http1_1(&self) -> bool {
         self.request_line.version == "HTTP/1.1"
     }
 
-    fn is_http3(&self) -> bool {
+    pub(super) fn is_http3(&self) -> bool {
         self.request_line.version == "HTTP/3"
     }
 
-    fn is_http1_0(&self) -> bool {
+    pub(super) fn is_http1_0(&self) -> bool {
         self.request_line.version == "HTTP/1.0"
     }
 
     // this is needed because e.g.,
     // we could get a post request without body or content type
     pub(crate) fn is_bad(&self) -> bool {
-        if self.is_http2()
+        if (self.is_http2()
             && ["Transfer-Encoding", "Upgrade", "Connection"]
                 .into_iter()
-                .any(|k| self.headers.contains_key(k))
+                .any(|k| self.headers.contains_key(k)))
+            || (self.is_http1_1() && ["Host"].into_iter().any(|k| !self.headers.contains_key(k)))
+            || (self.transfer_encoding().is_none()
+                && self.content_length().is_none()
+                && self.body.is_empty())
         {
-            return true;
-        } else if self.is_http1_1() && ["Host"].into_iter().any(|k| !self.headers.contains_key(k)) {
             return true;
         }
 
@@ -338,17 +331,19 @@ impl<'a> Request<'a> {
     }
 
     pub(crate) fn how_bad(&self) -> Option<&str> {
-        Some("so bad, this string ended up like this")
+        Some("so bad, this string ended up this bad")
     }
 
-    // we don't need option because
-    // if content type doesnt exist
-    // is_bad and how_bad would have cought it
-    pub(crate) fn content_type(&self) -> &str {
-        self.headers.get("Content-Type").unwrap()
+    pub(crate) fn is_secure(&self) -> bool {
+        false
+    }
+}
+
+impl<'a> Request<'a> {
+    pub(crate) fn content_type(&self) -> Option<&&str> {
+        self.headers.get("Content-Type")
     }
 
-    // this field is obligatory in post requests witha body
     pub(crate) fn content_length(&self) -> Option<&&str> {
         self.headers.get("Content-Length")
     }
@@ -357,32 +352,31 @@ impl<'a> Request<'a> {
         self.headers.get("Accept").unwrap_or(&MIME_TYPES)
     }
 
-    pub fn cookie(&self) -> Option<&&str> {
+    pub(super) fn cookie(&self) -> Option<&&str> {
         self.headers.get("Cookie")
     }
 
-    pub fn origin(&self) -> Option<&&str> {
+    pub(super) fn origin(&self) -> Option<&&str> {
         self.headers.get("origin")
     }
 
-    pub fn access_control_allow_origin(&self) -> Option<&&str> {
+    pub(super) fn access_control_allow_origin(&self) -> Option<&&str> {
         self.headers.get("Access-Control-Allow-Origin")
     }
 
-    // this field is obligatory
-    pub fn host(&self) -> &str {
-        self.headers.get("Host").unwrap()
+    pub(super) fn host(&self) -> Option<&&str> {
+        self.headers.get("Host")
     }
 
-    pub fn user_agent(&self) -> Option<&&str> {
+    pub(super) fn user_agent(&self) -> Option<&&str> {
         self.headers.get("User-Agent")
     }
 
-    pub fn transfer_encoding(&self) -> Option<&&str> {
+    pub(super) fn transfer_encoding(&self) -> Option<&&str> {
         self.headers.get("Transfer-Encoding")
     }
 
-    pub fn date(&self) -> Option<&&str> {
+    pub(super) fn date(&self) -> Option<&&str> {
         self.headers.get("Date")
     }
 }

@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 use super::tree::Node;
 
+// TODO: in rest
+// cache whole dirs when they get fetched to front end
+
 const FILE_COMPONENT: &[u8] = include_bytes!("../../src-front/components/file.html");
 const DIR_COMPONENT: &[u8] = include_bytes!("../../src-front/components/dir.html");
 
@@ -40,7 +43,11 @@ fn file_component(
 
 // wrapper for file component, takes care of parsing templaing values
 // returns file component html data
-fn get_component(cache: &mut HashMap<&str, String>, dir: &[PathBuf], node: &Node) -> String {
+fn get_component<'a>(
+    cache: &'a mut HashMap<&'a str, String>,
+    dir: &'a [PathBuf],
+    node: &'a Node,
+) -> String {
     let value = node.value().unwrap();
 
     let file = fs::File::open(&value).unwrap();
@@ -64,7 +71,7 @@ fn get_component(cache: &mut HashMap<&str, String>, dir: &[PathBuf], node: &Node
         md.modified().unwrap(),
         icon,
         ftype,
-        file_size(&value),
+        file_size(&md),
     )
 }
 
@@ -76,18 +83,22 @@ enum CacheErr {
 }
 
 use std::os::unix::fs::MetadataExt;
+#[cfg(target_family = "wasi")]
 use std::os::wasi::fs::MetadataExt;
+#[cfg(target_family = "windows")]
 use std::os::windows::fs::MetadataExt;
 
 // returns file size
 fn file_size(name: &fs::Metadata) -> u64 {
-    if cfg!(unix) {
-        name.size()
-    } else if cfg!(windows) {
-        name.file_size()
-    } else if cfg!(wasi) {
-        name.size()
-    }
+    // if cfg!(unix) {
+    name.size()
+    // } else if cfg!(windows) {
+    //     name.file_size()
+    // } else if cfg!(wasi) {
+    //     name.size()
+    // } else {
+    //     0
+    // }
 }
 
 // returns a result of the local icons dir

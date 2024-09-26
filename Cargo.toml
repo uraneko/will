@@ -12,3 +12,7 @@ name = "will_o_wisp"
 [[example]]
 name = "tree"
 path = "examples/tree.rs"
+
+[[example]]
+name = "ifnet"
+path = "examples/ifnet.rs"
