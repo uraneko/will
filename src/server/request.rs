@@ -56,9 +56,21 @@ fn is_supported_request(request: &str) -> Option<&str> {
         Some("GET")
     } else if is_post_request(request) {
         Some("POST")
+    } else if is_put_request(request) {
+        Some("PUT")
+    } else if is_delete_request(request) {
+        Some("DELETE")
     } else {
         None
     }
+}
+
+fn is_delete_request(request: &str) -> bool {
+    request.starts_with("DELETE")
+}
+
+fn is_put_request(request: &str) -> bool {
+    request.starts_with("PUT")
 }
 
 fn is_get_request(request: &str) -> bool {
@@ -77,7 +89,7 @@ fn is_http_method(method: &str) -> bool {
     match method {
         // NOTE: validating only get and post
         // because this server will no thandle anything else
-        "HEAD" | "GET" | "POST" => true,
+        "HEAD" | "GET" | "POST" | "PUT" | "DELETE" => true,
         _ => false,
     }
 }
@@ -265,6 +277,7 @@ pub(crate) fn parse_body<'a>(
 
 #[derive(Debug)]
 pub(crate) enum RequestErr<'a> {
+    UnsupportedFormat,
     URLTargetNotFound,
     ParamNameNotFound,
     ParamValueNotFound,
@@ -357,24 +370,28 @@ impl<'a> Request<'a> {
 
     // this is needed because e.g.,
     // we could get a post request without body or content type
-    pub(crate) fn is_bad(&self) -> bool {
-        if (self.is_http2()
+    pub(crate) fn is_bad(&self) -> (bool, u8) {
+        if self.is_http2()
             && ["Transfer-Encoding", "Upgrade", "Connection"]
                 .into_iter()
-                .any(|k| self.headers.contains_key(k)))
-            || (self.is_http1_1() && ["Host"].into_iter().any(|k| !self.headers.contains_key(k)))
-            || (self.transfer_encoding().is_none()
-                && self.content_length().is_none()
-                && self.body.is_empty())
+                .any(|k| self.headers.contains_key(k))
         {
-            return true;
+            return (true, 1);
+        } else if self.is_http1_1() && ["Host"].into_iter().any(|k| !self.headers.contains_key(k)) {
+            return (true, 2);
+        } else if self.transfer_encoding().is_some()
+            || self.content_length().is_some() && self.body.is_empty()
+        {
+            return (true, 3);
         }
 
-        false
+        (false, 0)
     }
 
-    pub(crate) fn how_bad(&self) -> Option<&str> {
-        Some("so bad, this string ended up this bad")
+    pub(crate) fn how_bad(&self, level: u8) -> RequestErr {
+        match level {
+            _ => todo!(),
+        }
     }
 
     pub(crate) fn is_secure(&self) -> bool {
@@ -436,5 +453,54 @@ impl<'a> Request<'a> {
 
     pub(super) fn date(&self) -> Option<&&str> {
         self.headers.get("Date")
+    }
+
+    pub fn no_params(&self) -> bool {
+        self.request_line.url_params.is_empty()
+    }
+
+    pub fn no_headers(&self) -> bool {
+        self.headers.is_empty()
+    }
+
+    pub fn no_body(&self) -> bool {
+        self.body.is_empty()
+    }
+
+    pub fn resource(&self) -> &str {
+        self.request_line
+            .url_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    }
+
+    pub(crate) fn mime_type(&self) -> Result<&str, RequestErr> {
+        let mimetype = match self
+            .request_line
+            .url_path
+            .extension()
+            .unwrap()
+            .to_str()
+            .unwrap()
+        {
+            "html" | "htm" => "text/html",
+            "css" => "text/css",
+            "js" => "text/javascript",
+            "json" => "application/json",
+            "svg" => "image/svg+xml",
+            "jpeg" | "jpg" => "image/jpeg",
+            "gif" => "image/gif",
+            "avif" => "image/avif",
+            "pdf" => "application/pdf",
+            _ => "",
+        };
+
+        if mimetype.is_empty() {
+            return Err(RequestErr::UnsupportedFormat);
+        }
+
+        Ok(mimetype)
     }
 }

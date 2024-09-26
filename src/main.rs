@@ -9,7 +9,7 @@ mod files;
 mod server;
 mod setup;
 
-use server::garcon;
+use server::{garcon, load_cache};
 use setup::init;
 
 fn main() {
@@ -18,6 +18,15 @@ fn main() {
 
     eprintln!("{:?}", conn);
 
+    let (src_files, app_icons, mut file_icons, mut dirs, status) = load_cache();
+
     // intercept incoming requests
-    garcon(conn);
+    garcon(
+        conn,
+        &src_files,
+        &app_icons,
+        &mut file_icons,
+        &mut dirs,
+        &status,
+    );
 }

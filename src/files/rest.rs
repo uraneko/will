@@ -1,55 +1,67 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::tree::Node;
 
 // TODO: in rest
 // cache whole dirs when they get fetched to front end
 
-const FILE_COMPONENT: &[u8] = include_bytes!("../../src-front/components/file.html");
-const DIR_COMPONENT: &[u8] = include_bytes!("../../src-front/components/dir.html");
+const DIR_COMPONENT: &str = include_str!("../../src-front/components/dir.html");
+const SINGLE_COMPONENT: &str = include_str!("../../src-front/components/file.html");
 
-// initializes the icons svg data cache
-// starts with js, html and css svgs already cached
-async fn icons_cache(dir: &[PathBuf]) -> Result<HashMap<&'static str, String>, CacheErr> {
-    if !contains_icon(dir, "html") || !contains_icon(dir, "css") || !contains_icon(dir, "js") {
-        return Err(CacheErr::EssentialExtensionsNotFound);
+pub(crate) fn dir_component<'a>(
+    path: &'a PathBuf,
+    nodes: &'a [Box<Node>],
+    dirs_cache: &'a mut HashMap<&'a PathBuf, String>,
+    icons_cache: &'a mut HashMap<String, String>,
+) -> &'a str {
+    if dirs_cache.contains_key(&path) {
+        return dirs_cache.get(&path).unwrap();
     }
 
-    Ok(HashMap::from([
-        ("js", fetch_icon("js")),
-        ("html", fetch_icon("html")),
-        ("css", fetch_icon("css")),
-    ]))
+    let dir_component = DIR_COMPONENT.replace(
+        "{children}",
+        &nodes
+            .iter()
+            .map(|node| node.value().unwrap())
+            .map(|value| get_component(value, icons_cache) + "\r\n")
+            .collect::<String>(),
+    );
+
+    dirs_cache.insert(path, dir_component);
+    dirs_cache.get(&path).unwrap()
 }
 
-// fills the file component template with the instance values and returns the component html
-fn file_component(
+// fills the file/dir component template with the instance values and returns the component html
+fn single_component(
+    kind: &str,
     name: &str,
-    last_modified: std::time::SystemTime,
+    last_modified: SystemTime,
     icon: &str,
     ftype: &str,
     fsize: u64,
 ) -> String {
-    String::from_utf8(FILE_COMPONENT.to_vec())
-        .unwrap()
-        .replace("{{{icon}}}", icon)
-        .replace("{{{name}}}", name)
-        .replace("{{{type}}}", &format!("{:?}", ftype))
-        .replace("{{{size}}}", &fsize.to_string())
-        .replace("{{{last_modified}}}", &format!("{:?}", last_modified))
+    SINGLE_COMPONENT
+        .replace("{kind}", kind)
+        .replace("{icon}", icon)
+        .replace("{name}", name)
+        .replace("{type}", &format!("{:?}", ftype))
+        .replace("{size}", &fsize.to_string())
+        .replace("{last_modified}", &format!("{}", date(last_modified)))
 }
 
 // wrapper for file component, takes care of parsing templaing values
 // returns file component html data
-fn get_component<'a>(
-    cache: &'a mut HashMap<&'a str, String>,
-    dir: &'a [PathBuf],
-    node: &'a Node,
-) -> String {
-    let value = node.value().unwrap();
-
+fn get_component<'a, 'b, 'c>(
+    value: &'a PathBuf,
+    icons_cache: &'c mut HashMap<String, String>,
+) -> String
+where
+    'a: 'b,
+    'c: 'b,
+{
     let file = fs::File::open(&value).unwrap();
     let md = file.metadata().unwrap();
     let ftype = match value.is_dir() {
@@ -60,14 +72,21 @@ fn get_component<'a>(
         },
     };
 
-    let icon = if contains_icon(dir, ftype) {
-        load_icon(dir, cache, ftype)
+    let icon = if contains_icon(icons_cache, ftype) {
+        load_icon(icons_cache, ftype)
     } else {
         "_"
     };
 
-    file_component(
-        value.to_str().unwrap_or("_"),
+    let kind = kind(&value);
+
+    single_component(
+        kind,
+        value
+            .file_name()
+            .unwrap_or(std::ffi::OsStr::new("???"))
+            .to_str()
+            .unwrap_or("???"),
         md.modified().unwrap(),
         icon,
         ftype,
@@ -75,18 +94,41 @@ fn get_component<'a>(
     )
 }
 
-const ICONS_DIR: &str = "resources/images/icons/";
+fn date(time: SystemTime) -> String {
+    let to_secs = time.duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let spt = 60_u64.pow(2);
+    let minutes = to_secs / 60;
+    let hours = to_secs / spt;
+    let days = to_secs / spt * 24;
+    let months = to_secs / spt * 24 * 30;
+    let [months, years_plus] = [months % 12, months / 12];
+    let years = to_secs / spt * 24 * 30 * 365;
+    let years = years + years_plus;
 
-enum CacheErr {
-    DirNotFound,
-    EssentialExtensionsNotFound,
+    format!(
+        "{}:{}:{} . {}/{}/{}",
+        hours,
+        minutes,
+        to_secs,
+        years + 1970,
+        months,
+        days
+    )
+}
+
+fn kind(p: &PathBuf) -> &str {
+    if p.is_file() {
+        "file"
+    } else {
+        "dir"
+    }
 }
 
 use std::os::unix::fs::MetadataExt;
-#[cfg(target_family = "wasi")]
-use std::os::wasi::fs::MetadataExt;
-#[cfg(target_family = "windows")]
-use std::os::windows::fs::MetadataExt;
+// #[cfg(target_family = "wasm")]
+// use std::os::wasi::fs::MetadataExt;
+// #[cfg(target_family = "windows")]
+// use std::os::windows::fs::MetadataExt;
 
 // returns file size
 fn file_size(name: &fs::Metadata) -> u64 {
@@ -101,8 +143,16 @@ fn file_size(name: &fs::Metadata) -> u64 {
     // }
 }
 
+#[derive(Debug)]
+pub(crate) enum CacheErr {
+    DirNotFound,
+    EssentialIconsNotFound,
+}
+
+const ICONS_DIR: &str = "resources/images/icons/";
+
 // returns a result of the local icons dir
-fn cache_icons_dir() -> Result<Vec<PathBuf>, CacheErr> {
+fn scan_icons_dir() -> Result<Vec<PathBuf>, CacheErr> {
     let dir = fs::read_dir(ICONS_DIR);
     if dir.is_err() {
         return Err(CacheErr::DirNotFound);
@@ -114,9 +164,20 @@ fn cache_icons_dir() -> Result<Vec<PathBuf>, CacheErr> {
         .collect::<Vec<PathBuf>>())
 }
 
+fn cache_icons_dir(cache: &mut HashMap<String, String>, dir: &[PathBuf]) {
+    cache.insert(
+        "records".into(),
+        dir.into_iter()
+            .map(|p| p.to_str())
+            .filter(|s| s.is_some())
+            .map(|s| s.unwrap())
+            .fold(String::new(), |acc, p| acc + ":" + p),
+    );
+}
+
 // checks if local icons dir contains icon name
-fn contains_icon(icons_dir: &[PathBuf], ext: &str) -> bool {
-    icons_dir.contains(&ext.into())
+fn contains_icon(cache: &HashMap<String, String>, ext: &str) -> bool {
+    cache.get("records").unwrap().contains::<&str>(&ext)
 }
 
 // fetchs icon svg data from local storage
@@ -127,19 +188,15 @@ fn fetch_icon(ext: &str) -> String {
 
 // loads icon svg, either from cache or from local storage if not already in cache
 // appends cache if needed
-fn load_icon<'a>(
-    dir: &[PathBuf],
-    cache: &'a mut HashMap<&'a str, String>,
-    ext: &'a str,
-) -> &'a str {
+fn load_icon<'a>(cache: &'a mut HashMap<String, String>, ext: &str) -> &'a str {
     if cache.contains_key(ext) {
         cache.get(ext).unwrap()
     } else {
-        if !contains_icon(dir, ext) {
+        if !contains_icon(cache, ext) {
             return "icon for type {} not found";
         }
         let icon = fetch_icon(ext);
-        cache.insert(ext, icon);
+        cache.insert(ext.into(), icon);
         cache.get(ext).unwrap()
     }
 }

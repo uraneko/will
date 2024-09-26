@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::BufRead;
@@ -5,22 +6,33 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::path::PathBuf;
 
-mod https;
+use super::files::rest::dir_component;
+
+mod frontend;
+mod logs;
 mod request;
 mod response;
 
-use request::{parse_request, RequestErr};
+pub(crate) use frontend::load_cache;
+use request::{parse_body, parse_request, Request, RequestErr};
+use response::{process_request_failure, process_request_success};
 
 enum ServerErr {
     MalformedRequest,
     InsufficientHeaders,
 }
 
-use request::parse_body;
-
-pub(super) fn garcon(conn: TcpListener) {
+pub(super) fn garcon(
+    conn: TcpListener,
+    src_files: &HashMap<&'static str, &'static str>,
+    app_icons: &HashMap<&str, &str>,
+    file_icons: &mut HashMap<String, String>,
+    dirs: &mut HashMap<&PathBuf, String>,
+    status: &HashMap<&str, &str>,
+) {
     let mut data = String::new();
     let mut buf = vec![];
+
     while let Some(Ok(mut stream)) = conn.incoming().next() {
         let mut reader = std::io::BufReader::new(&mut stream);
 
@@ -37,20 +49,29 @@ pub(super) fn garcon(conn: TcpListener) {
 
         let request = parse_request(&request);
 
-        if let Err(RequestErr::BadRequestLine {
-            method,
-            version,
-            url,
-        }) = request
-        {
-            eprintln!(
-                "bad {} request at url {} with http version {}, aborting...",
-                method, url, version
-            );
+        // mock response
+        // let index = std::fs::read_to_string("resources/frontend/index.html").unwrap();
+        // let response = format!(
+        //     "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length{}\r\n{}",
+        //     index.len(),
+        //     index
+        // );
+        // let mut writer = std::io::BufWriter::new(&mut stream);
+        // _ = writer.write(response.as_bytes());
+        // continue;
 
-            continue;
-        } else if let Err(e) = request {
-            eprintln!("server aborting request due to error: {:?}", e);
+        if let Err(e) = request {
+            let response = match process_request_failure(e) {
+                Ok(r) => r,
+                Err(e) => {
+                    println!("response error, aborting request reply, {:?}", e);
+                    continue;
+                }
+            };
+
+            let response = response.parse();
+            let mut writer = std::io::BufWriter::new(&mut stream);
+            _ = writer.write(response.as_bytes());
             continue;
         }
 
@@ -65,14 +86,35 @@ pub(super) fn garcon(conn: TcpListener) {
 
         println!("=========\r\n{:?}\r\n=========", request);
 
-        if request.is_bad() {
-            let Some(bad) = request.how_bad() else {
-                unreachable!("not bad after all")
+        if let (true, level) = request.is_bad() {
+            let response = match process_request_failure(request.how_bad(level)) {
+                Ok(r) => r,
+                Err(e) => {
+                    println!("{:?}", e);
+                    continue;
+                }
             };
-            println!("the request is bad, {}", bad);
+            let response = response.parse();
+            _ = writer.write(response.as_bytes());
             continue;
         }
         // initialize response instance
+        let mut clen = String::new();
+        let response = match process_request_success(
+            &request, src_files, dirs, file_icons, app_icons, status, &mut clen,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                println!("response error, aborting request reply, {:?}", e);
+                continue;
+            }
+        };
+
+        println!("======{:?}======", &response);
+
+        let response = response.parse();
+        println!("======{:?}======", &response);
+        _ = writer.write(response.as_bytes());
 
         // write response line, headers and body
     }

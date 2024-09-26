@@ -1,5 +1,5 @@
 [package]
-name = "will_o_wisp"
+name = "will"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 
 [lib]
 path = "src/main.rs"
-name = "will_o_wisp"
+name = "will"
 
 [[example]]
 name = "tree"

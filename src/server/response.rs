@@ -1,57 +1,112 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
+use super::frontend::src_files;
+use super::{Request, RequestErr};
+
+#[derive(Debug)]
 pub(crate) struct ResponseLine<'a> {
     version: &'a str,
     status_code: &'a str,
     status_text: &'a str,
 }
 
+#[derive(Debug)]
 pub(crate) struct Response<'a> {
     response_line: ResponseLine<'a>,
     headers: HashMap<&'a str, &'a str>,
-    body: &'a str,
+    body: HashMap<&'a str, &'a str>,
 }
 
-pub(crate) fn process_request<'a>(
-    url_domain: &'a [&'a str; 5],
-    url_params: &'a HashMap<&'a str, &'a str>,
-    method: &'a str,
-    headers: &'a HashMap<&'a str, &'a str>,
-    body: &'a HashMap<&'a str, &'a str>,
+pub(crate) fn process_request_success<'a>(
+    req: &'a Request<'a>,
+    src_files: &'a HashMap<&str, &str>,
+    dirs: &'a HashMap<&PathBuf, String>,
+    file_icons: &'a HashMap<String, String>,
+    app_icons: &'a HashMap<&str, &str>,
+    status: &'a HashMap<&str, &str>,
+    clen: &'a mut String,
 ) -> Result<Response<'a>, ResponseErr> {
-    match method {
-        "GET" => process_get_request(url_domain, url_params, headers),
-        "HEAD" => process_head_request(url_domain, url_params, headers),
-        "POST" => process_post_request(url_domain, url_params, headers, body),
-        // FIXME: return an ok response method not allowed instead of returning an error
-        _ => Err(ResponseErr::MethodUnsupported),
+    if req.method() == "GET" && req.no_params() {
+        println!("**{}", req.resource());
+        match src_files.contains_key(req.resource()) {
+            true => {
+                let file = src_files.get(req.resource()).unwrap();
+                *clen = format!("{}", file.len());
+                let cty = req.mime_type().unwrap_or("text/html");
+
+                return Ok(response_template(status.status("200"), req.version())
+                    .headers(HashMap::from([
+                        ("Content-Type", cty),
+                        ("Content-Length", clen.as_str()),
+                    ]))
+                    .body(HashMap::from([("data", *file)])));
+            }
+            false => {
+                return Ok(response_template(status.status("204"), req.version())
+                    .headers(HashMap::from([("Content-Lnegth", "0")])))
+            }
+        }
+    }
+
+    Err(ResponseErr::MethodUnsupported)
+}
+
+// TODO: should have the request error variant instance
+// hold all the necessary data from the request
+pub(crate) fn process_request_failure<'a>(
+    req_err: RequestErr,
+) -> Result<Response<'a>, ResponseErr> {
+    match req_err {
+        _ => todo!(),
     }
 }
 
-pub(crate) fn process_head_request<'a>(
-    url_domain: &'a [&'a str; 5],
-    url_params: &'a HashMap<&'a str, &'a str>,
-    headers: &'a HashMap<&'a str, &'a str>,
-    // body: &HashMap<&str, &str>,
-) -> Result<Response<'a>, ResponseErr> {
+// pub(crate) fn process_request<'a>(
+//     maybe_request: Result<Request, RequestErr>,
+//
+//     src_files: &HashMap<&str, &str>,
+//     dirs: &HashMap<&PathBuf, String>,
+//     file_icons: &HashMap<String, String>,
+//     app_icons: &HashMap<&str, &str>,
+//     status: &HashMap<&str, &str>,
+// ) -> Result<Response<'a>, ResponseErr> {
+//     if let Ok(request) = maybe_request {
+//         process_request_success(&request, src_files, dirs, file_icons, app_icons, status)
+//     } else if let Err(req_err) = maybe_request {
+//         process_request_failure(req_err)
+//     } else {
+//         unreachable!("a result can only be Ok or Err")
+//     }
+// }
+
+// generates the response headers
+fn generate_headers<'a>(method: &'a str, clen: &'a str) -> HashMap<&'a str, &'a str> {
+    let mut headers = HashMap::new();
+    if method == "GET" {
+        headers.insert("Content-Length", clen)
+    } else {
+        todo!()
+    };
+
     todo!()
 }
 
-pub(crate) fn process_get_request<'a>(
-    url_domain: &'a [&'a str; 5],
-    url_params: &'a HashMap<&'a str, &'a str>,
-    headers: &'a HashMap<&'a str, &'a str>,
-    // body: &HashMap<&str, &str>,
-) -> Result<Response<'a>, ResponseErr> {
+// generates the response body
+fn generate_body<'a>() -> HashMap<&'a str, &'a str> {
     todo!()
 }
 
-pub(crate) fn process_post_request<'a>(
-    url_domain: &'a [&'a str; 5],
-    url_params: &'a HashMap<&'a str, &'a str>,
-    headers: &'a HashMap<&'a str, &'a str>,
-    body: &'a HashMap<&'a str, &'a str>,
-) -> Result<Response<'a>, ResponseErr> {
+fn process_request_line(
+    req: &Request,
+    headers: &mut HashMap<&str, &str>,
+    body: &mut HashMap<&str, &str>,
+) {
+}
+
+// specifies the requested resource type
+// source file, html component,
+fn resource_type() -> u8 {
     todo!()
 }
 
@@ -83,6 +138,7 @@ fn status_text(status_code: &str) -> Result<&str, ResponseErr> {
         "200" => Ok("OK"),
         "201" => Ok("Created"),
         "202" => Ok("Accepted"),
+        "204" => Ok("No Content"),
         "303" => Ok("See Other"),
         "304" => Ok("Not Modified"),
         "307" => Ok("Temporary Redirect"),
@@ -104,6 +160,12 @@ fn status_text(status_code: &str) -> Result<&str, ResponseErr> {
     }
 }
 
+// NOTE: GET, POST  need a response body
+// NOTE: PUT,   dont need a response body
+
+fn write_response(response: Response, writer: &mut std::io::BufWriter<&mut std::net::TcpStream>) {}
+
+#[derive(Debug)]
 pub(crate) enum ResponseErr {
     UnrecognizedStatusCode,
     UnsupportedStatusCode,
@@ -118,7 +180,7 @@ impl<'a> Response<'a> {
                 version: "",
                 status_text: "",
             },
-            body: "",
+            body: HashMap::new(),
             headers: HashMap::new(),
         }
     }
@@ -153,7 +215,7 @@ impl<'a> Response<'a> {
         }
     }
 
-    fn body(self, body: &'a str) -> Self {
+    fn body(self, body: HashMap<&'a str, &'a str>) -> Self {
         Self {
             response_line: self.response_line,
             body,
@@ -169,11 +231,28 @@ impl<'a> Response<'a> {
         }
     }
 
-    fn parse_response(self) -> &'a str {
-        ""
+    fn body_mut(&mut self, body: HashMap<&'a str, &'a str>) {
+        self.body = body;
     }
 
-    fn is_all_filled(&self) -> bool {
+    pub fn parse(self) -> String {
+        format!(
+            "{} {} {}\r\n{}\r\n{}}}",
+            self.response_line.version,
+            self.response_line.status_code,
+            self.response_line.status_text,
+            self.headers
+                .into_iter()
+                .fold(String::new(), |acc, (k, v)| acc + k + ": " + v + "\r\n"),
+            self.body
+                .into_iter()
+                .fold(String::from("{"), |acc, (k, v)| {
+                    acc + "{" + k + ": " + v + ","
+                })
+        )
+    }
+
+    fn is_ready(&self) -> bool {
         if self.response_line.version.is_empty()
             || self.response_line.status_text.is_empty()
             || self.response_line.status_code.is_empty()
@@ -187,396 +266,54 @@ impl<'a> Response<'a> {
     }
 }
 
-trait ClientErrorResponses<'a> {
-    fn method_not_allowed(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self;
+const STATUS: [(&str, &str); 23] = [
+    ("100", "Continue"),
+    ("101", "Switching Protocols"),
+    ("200", "OK"),
+    ("201", "Created"),
+    ("202", "Accepted"),
+    ("204", "No Content"),
+    ("303", "See Other"),
+    ("304", "Not Modified"),
+    ("307", "Temporary Redirect"),
+    ("308", "Permanent Redirect"),
+    ("400", "Bad Request"),
+    ("401", "Unauthorized"),
+    ("403", "Forbidden"),
+    ("404", "Not Found"),
+    ("405", "Method Not Allowed"),
+    ("406", "Not Acceptable"),
+    ("408", "Request Timeout"),
+    ("410", "Gone"),
+    ("500", "Internal Server Error"),
+    ("501", "Not Implemented"),
+    ("502", "Bad Gateway"),
+    ("503", "Service Unavailable"),
+    ("504", "Gateway Timeout"),
+];
 
-    fn unauthorized(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn bad_request(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn forbidden(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn not_found(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn not_acceptable(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn request_timeout(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str)
-        -> Self;
-
-    fn gone(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
+pub(crate) fn status() -> HashMap<&'static str, &'static str> {
+    HashMap::from(STATUS)
 }
 
-// TODO: cache the parsed error messages for later uses
-impl<'a> ClientErrorResponses<'a> for Response<'a> {
-    fn bad_request(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "400",
-                status_text: "Unauthorized",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn unauthorized(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "401",
-                status_text: "Unauthorized",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn forbidden(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "403",
-                status_text: "Forbidden",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn not_found(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "404",
-                status_text: "Not Found",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn method_not_allowed(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "405",
-                status_text: "Method Not Allowed",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn not_acceptable(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "406",
-                status_text: "Not Acceptable",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn request_timeout(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "408",
-                status_text: "Request Timeout",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn gone(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "410",
-                status_text: "Gone",
-                version,
-            },
-            headers,
-            body,
-        }
+fn response_template<'a>(status: (&'a str, &'a str), version: &'a str) -> Response<'a> {
+    Response {
+        response_line: ResponseLine {
+            version,
+            status_code: status.0,
+            status_text: status.1,
+        },
+        headers: HashMap::new(),
+        body: HashMap::new(),
     }
 }
 
-trait ServerErrorResponses<'a> {
-    fn internal_server_error(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self;
-
-    fn not_implemented(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str)
-        -> Self;
-
-    fn bad_gateway(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn service_unavailable(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self;
-
-    fn gateway_timeout(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str)
-        -> Self;
+trait Status<'a> {
+    fn status(&'a self, code: &'a str) -> (&str, &str);
 }
 
-impl<'a> ServerErrorResponses<'a> for Response<'a> {
-    fn internal_server_error(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "500",
-                status_text: "Gone",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn not_implemented(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "501",
-                status_text: "Gone",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn bad_gateway(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "502",
-                status_text: "Gone",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn service_unavailable(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "503",
-                status_text: "Gone",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn gateway_timeout(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "504",
-                status_text: "Gone",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-}
-
-trait RedirectionMessages<'a> {
-    fn see_other(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn not_modified(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn temporary_redirect(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self;
-
-    fn permanent_redirect(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self;
-}
-
-impl<'a> RedirectionMessages<'a> for Response<'a> {
-    fn see_other(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "303",
-                status_text: "See Other",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-    fn not_modified(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "304",
-                status_text: "Not Modified",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-    fn temporary_redirect(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "307",
-                status_text: "Temporary redirect",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-    fn permanent_redirect(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "308",
-                status_text: "Permanent Redirect",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-}
-
-trait SuccessfulResponses<'a> {
-    fn ok(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn created(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-
-    fn accepted(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self;
-}
-
-impl<'a> SuccessfulResponses<'a> for Response<'a> {
-    fn ok(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "200",
-                status_text: "OK",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-
-    fn created(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "201",
-                status_text: "Created",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-    fn accepted(version: &'a str, headers: HashMap<&'a str, &'a str>, body: &'a str) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "203",
-                status_text: "Accepted",
-                version,
-            },
-            headers,
-            body,
-        }
-    }
-}
-
-trait InformationResponses<'a> {
-    fn continue_(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>, /* , body: &'a str */
-    ) -> Self;
-
-    fn switching_protocols(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        // body: &'a str,
-    ) -> Self;
-}
-
-impl<'a> InformationResponses<'a> for Response<'a> {
-    fn continue_(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>, /* , body: &'a str */
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "100",
-                status_text: "Continue",
-                version,
-            },
-            headers,
-            body: "",
-        }
-    }
-
-    fn switching_protocols(
-        version: &'a str,
-        headers: HashMap<&'a str, &'a str>,
-        // body: &'a str,
-    ) -> Self {
-        Self {
-            response_line: ResponseLine {
-                status_code: "101",
-                status_text: "Switching Protocols",
-                version,
-            },
-            headers,
-            body: "",
-        }
+impl<'a> Status<'a> for HashMap<&'a str, &'a str> {
+    fn status(&'a self, code: &'a str) -> (&str, &str) {
+        (code, self.get(code).unwrap())
     }
 }
