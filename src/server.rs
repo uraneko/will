@@ -49,17 +49,6 @@ pub(super) fn garcon(
 
         let request = parse_request(&request);
 
-        // mock response
-        // let index = std::fs::read_to_string("resources/frontend/index.html").unwrap();
-        // let response = format!(
-        //     "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length{}\r\n{}",
-        //     index.len(),
-        //     index
-        // );
-        // let mut writer = std::io::BufWriter::new(&mut stream);
-        // _ = writer.write(response.as_bytes());
-        // continue;
-
         if let Err(e) = request {
             let response = match process_request_failure(e) {
                 Ok(r) => r,

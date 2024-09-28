@@ -40,7 +40,7 @@ pub(crate) fn process_request_success<'a>(
                         ("Content-Type", cty),
                         ("Content-Length", clen.as_str()),
                     ]))
-                    .body(HashMap::from([("data", *file)])));
+                    .body(HashMap::from([("#data", *file)])));
             }
             false => {
                 return Ok(response_template(status.status("204"), req.version())
@@ -236,20 +236,24 @@ impl<'a> Response<'a> {
     }
 
     pub fn parse(self) -> String {
-        format!(
-            "{} {} {}\r\n{}\r\n{}}}",
+        let mut data = format!(
+            "{} {} {}\r\n{}\r\n",
             self.response_line.version,
             self.response_line.status_code,
             self.response_line.status_text,
             self.headers
                 .into_iter()
-                .fold(String::new(), |acc, (k, v)| acc + k + ": " + v + "\r\n"),
-            self.body
-                .into_iter()
-                .fold(String::from("{"), |acc, (k, v)| {
-                    acc + "{" + k + ": " + v + ","
-                })
-        )
+                .fold(String::new(), |acc, (k, v)| acc + k + ": " + v + "\r\n")
+        );
+
+        if self.body.contains_key("#data") {
+            data.push_str(parse_text(&self.body));
+        } else {
+            data.push_str(&parse_json(&self.body));
+        }
+
+        println!("\\\\\\\\\\\\{}//////", data);
+        data
     }
 
     fn is_ready(&self) -> bool {
@@ -316,4 +320,17 @@ impl<'a> Status<'a> for HashMap<&'a str, &'a str> {
     fn status(&'a self, code: &'a str) -> (&str, &str) {
         (code, self.get(code).unwrap())
     }
+}
+
+fn parse_json(json: &HashMap<&str, &str>) -> String {
+    let mut json = json
+        .into_iter()
+        .fold(String::new(), |acc, (k, v)| acc + "{" + k + ": " + v + ",");
+    json.push_str("}");
+
+    json
+}
+
+fn parse_text<'a>(text: &'a HashMap<&'a str, &'a str>) -> &'a str {
+    text.get("#data").unwrap()
 }
